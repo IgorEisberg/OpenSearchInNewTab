@@ -1,56 +1,30 @@
-import re
-from threading import Timer
-
-import sublime_plugin
-import sublime
-
-DEFAULT_NAME = 'Find Results'
-ALT_NAME_BASE = DEFAULT_NAME + ' '
-MAX_QUERY = 16
-NEXT_LINE_SYMBOL = '↲'
-ELLIPSIS = '…'
-
-
-def truncate(str):
-    return str[:MAX_QUERY].rstrip() + ELLIPSIS if len(str) > MAX_QUERY else str
-
+import sublime, sublime_plugin, re
 
 class OpenSearchInNewTab(sublime_plugin.EventListener):
+    cache = {}
 
-    # set a bit changed name
-    # so the tab won't be bothered
-    # during new search
-    def on_activated(self, view):
-        if self.is_search_view(view):
-            t = Timer(.001, self.update_view, (view,))
-            t.start()
+    def on_new_async(self, view):
+        if view.element() == 'find_in_files:output':
+            while view.size() == 0:
+                pass
 
-    def get_alt_name(self, view):
-        first_line_coords = view.full_line(sublime.Region(0, 0))
-        first_line = view.substr(first_line_coords)
-        match = re.search('^Searching \d+ files for "(.*?)(")?$', first_line)
+            first_line_region = view.line(sublime.Region(0, 0))
+            first_line = view.substr(first_line_region)
+            match = re.search('"(.*?)("(?: \(.*\))?)?$', first_line)
 
-        if match:
-            query = match.group(1)
-            is_multiline = not match.group(2)
+            if match:
+                query = match.group(1).rstrip()
 
-            if is_multiline:
-                query = query.rstrip() + ' ' + NEXT_LINE_SYMBOL
+                if not match.group(2):
+                    query += '↲'
 
-            query = truncate(query)
+                if len(query) > 16:
+                    query = query[:16].rstrip() + '…'
 
-            return DEFAULT_NAME + ': "' + query + '"'
+                key = hash(query)
+                self.cache[key] = self.cache.get(key, 0) + 1
 
-        return ALT_NAME_BASE
+                if self.cache[key] > 1:
+                    query += ' (' + str(self.cache[key]) + ')'
 
-    def update_view(self, view):
-        view.set_name(self.get_alt_name(view))
-
-    def is_search_view(self, view):
-        name = view.name()
-
-        return (
-            name == DEFAULT_NAME or
-            name == ALT_NAME_BASE or
-            name == self.get_alt_name(view)
-            )
+                view.set_name(view.name() + ': ' + query)
